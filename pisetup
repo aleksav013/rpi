@@ -1,50 +1,66 @@
-# prepare os
+# flashing os to sd card
+unzip -p <arm64_lite>.img | dd of=/dev/mmcblk0 bs=4M conv=fsync status=progress
 
-#unzip -p <arm64_lite>.img | dd of=/dev/mmcblk0 conv=fsync bs=4M status=progress
-#mount /dev/mmcblk0#p1 /mnt
-#cd /mnt
-#touch ssh
-#add those lines to config.txt
+# enable sshd and wifi on first boot
+mount /dev/mmcblk0#p1 /mnt/pi
+touch /mnt/pi/boot
+cp ./files/boot/wpa_supplicant.conf /mnt/pi
+## edit /mnt/pi/config.txt
 disable_overscan=1
 over_voltage=6
 arm_freq=2147
 gpu_freq=750
 
+# secure ssh
+## copy ssh key
+ssh-copy-id -i .ssh/id_rsa.pub pi@<RPI_LAN_ADDRESS>
+## edit /etc/ssh/sshd_config
+PermitRootLogin no
+PasswordAuthentication no
+## restart ssh service
+service sshd restart
+
+# disable bluetooth
+rfkill block bluetooth
+
+# clear password for all users
+## edit /etc/shadow
 
 # update system
 apt update
-apt dist-upgrade
 apt upgrade
 apt autoremove
 rpi-eeprom-update
 
 # install tools
-apt install tmux neovim ranger neofetch
+sudo apt install tmux neovim ranger neofetch
 
-#ssh-copy-id -i .ssh/id_rsa.pub pi@192.168.0.22
-#passwd
-#rfkill block bluetooth
+# install required tools for gitea
+sudo apt install git sqlite3
 
-# set ssh to accept only keys on localhost*
-vim /etc/ssh/sshd_config
-#add those lines
-PermitRootLogin no
-PasswordAuthentication no
-service sshd restart
+# git user
+useradd --create-home git
 
+# gitea
+wget https://dl.gitea.io/gitea/1.15.10/gitea-1.15.10-linux-arm64
+chmod +x gitea-1.15.10-linux-arm64
 
 # install pihole & pivpn
 curl -L https://install.pivpn.io | bash
 curl -sSL https://install.pi-hole.net | bash
+
 #change pihole password
 pihole -a -p
+
+# pivpn
+pivpn -d
 
 # 80 -> 8080 lighttp
 sed -i "s/80/8080/" /etc/lighttpd/lighttpd.conf
 service lighttpd restart
 
-# installing
-apt install nginx certbot python3-certbot-nginx ufw fail2ban prosody coturn
+# nginx & certbot
+sudo apt install nginx certbot python3-certbot-nginx
 
 # move default index page to /var/www/html/default
 mkdir /var/www/html/default
@@ -57,23 +73,23 @@ limit_req_zone $binary_remote_addr zone=one:10m rate=1r/s;
 limit_req zone=one;
 
 # ufw & fail2ban
-pivpn -d
-vim /etc/default/ufw "disable ipv6"
-ufw allow from 192.168.0.0/24
-ufw allow from 10.8.0.0/24
-ufw allow 80/tcp
-ufw allow 443/tcp
-ufw allow XMPP
-ufw enable
+sudo apt install ufw fail2ban
+sudo nvim /etc/default/ufw "disable ipv6"
+sudo ufw allow from 192.168.0.0/24
+sudo ufw allow from 10.8.0.0/24
+sudo ufw allow to any app "SSH"
+sudo ufw allow to any app "WWW Full"
+sudo ufw allow to any app "XMPP"
+sudo ufw enable
 
 # certbot
-certbot -d gajba.cf --nginx
-certbot certonly -d chat.gajba.cf --nginx
+certbot -d gajba.cf -d chat.gajba.cf -d git.gajba.cf --nginx
 
-# ovpns
+# ovpn
 pivpn add -n aleksa
 
 # prosody
+sudo apt install prosody coturn
 admins = { "aleksa@gajba.cf" }
 VirtualHost "gajba.cf"
 service prosody restart
@@ -85,6 +101,3 @@ sudo prosodyctl adduser aleksa@gajba.cf
 
 # that's it
 reboot
-
-# testing
-for i in {nginx,ufw,fail2ban,prosody}; do service $i status | grep Active; done
